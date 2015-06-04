@@ -10,7 +10,6 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
     const XML_PATH_MINIMAL_QUERY_LENGTH             = 'algoliasearch/ui/minimal_query_length';
     const XML_PATH_SEARCH_DELAY                     = 'algoliasearch/ui/search_delay';
 
-    const XML_PATH_IS_ALGOLIA_SEARCH_ENABLED        = 'algoliasearch/credentials/is_enabled';
     const XML_PATH_IS_POPUP_ENABLED                 = 'algoliasearch/credentials/is_popup_enabled';
     const XML_PATH_APPLICATION_ID                   = 'algoliasearch/credentials/application_id';
     const XML_PATH_API_KEY                          = 'algoliasearch/credentials/api_key';
@@ -40,7 +39,6 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
     const XML_PATH_NUMBER_OF_CATEGORY_SUGGESTIONS   = 'algoliasearch/ui/number_category_suggestions';
     const XML_PATH_NUMBER_OF_PAGE_SUGGESTIONS       = 'algoliasearch/ui/number_page_suggestions';
 
-    const XML_PATH_USE_RESULT_CACHE                 = 'algoliasearch/ui/use_result_cache';
     const XML_PATH_SAVE_LAST_QUERY                  = 'algoliasearch/ui/save_last_query';
 
     private static $_categoryNames;
@@ -517,6 +515,43 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
         }
     }
 
+    public function getAttributeValue($attributeCode, $value, $storeId, $entity = 'catalog_category')
+    {
+        $attribute = Mage::getSingleton('eav/config')->getAttribute($entity, $attributeCode);
+        if ( ! $attribute instanceof Mage_Eav_Model_Entity_Attribute_Abstract) {
+            return NULL;
+        }
+
+        if ($attribute->usesSource()) {
+            $attribute->setStoreId($storeId);
+            $value = $attribute->getSource()->getOptionText($value);
+        }
+        if ($attribute->getBackendType() == 'datetime') {
+            $value = $this->_getStoreDate($storeId, $value);
+        }
+
+        $inputType = $attribute->getFrontend()->getInputType();
+        if ($inputType == 'price') {
+            $value = Mage::app()->getStore($storeId)->roundPrice($value);
+        }
+
+        if (is_array($value)) {
+            return array_map(array($this, '_cleanData'), $value);
+        } elseif (empty($value) && ($inputType == 'select' || $inputType == 'multiselect')) {
+            return NULL;
+        }
+
+        return $this->_cleanData($value);
+    }
+
+    protected function _cleanData($value)
+    {
+        if ( ! is_string($value)) {
+            return $value;
+        }
+        return preg_replace("#\s+#siu", ' ', trim(strip_tags($value)));
+    }
+
     /**
      * Prepare product JSON
      *
@@ -639,7 +674,7 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
                 ? $product->getData($this->_dataPrefix . $attribute['attribute'])
                 : $product->getData($attribute['attribute']);
 
-            $value = Mage::getResourceSingleton('algoliasearch/fulltext')->getAttributeValue($attribute['attribute'], $value, $product->getStoreId(), Mage_Catalog_Model_Product::ENTITY);
+            $value = $this->getAttributeValue($attribute['attribute'], $value, $product->getStoreId(), Mage_Catalog_Model_Product::ENTITY);
 
             if ($value)
                 $customData[$attribute['attribute']] = $value;
@@ -700,7 +735,7 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
                 ? $category->getData($this->_dataPrefix.$attribute['attribute'])
                 : $category->getData($attribute['attribute']);
 
-            $value = Mage::getResourceSingleton('algoliasearch/fulltext')->getAttributeValue($attribute['attribute'], $value, $storeId, Mage_Catalog_Model_Category::ENTITY);
+            $value = $this->getAttributeValue($attribute['attribute'], $value, $storeId, Mage_Catalog_Model_Category::ENTITY);
 
             if (isset($data[$attribute['attribute']]))
                 $value = $data[$attribute['attribute']];
@@ -903,9 +938,9 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
      * @return void
      * @throws Exception
      */
-    public function rebuildStoreProductIndex($storeId, $productIds, $defaultData = NULL)
+    public function rebuildStoreProductIndex($storeId, $productIds = NULL, $defaultData = NULL)
     {
-        if (count($productIds) > 1)
+        if ($productIds && count($productIds) > 1)
             $this->rebuiltStorePageIndex($storeId);
 
         $emulationInfo = $this->startEmulation($storeId);
@@ -1280,14 +1315,9 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
         return Mage::getStoreConfigFlag(self::XML_PATH_SAVE_LAST_QUERY, $storeId);
     }
 
-    public function isEnabled($storeId = NULL)
-    {
-        return (bool) Mage::getStoreConfigFlag(self::XML_PATH_IS_ALGOLIA_SEARCH_ENABLED, $storeId);
-    }
-
     public function isPopupEnabled($storeId = NULL)
     {
-        return ($this->isEnabled($storeId) && Mage::getStoreConfigFlag(self::XML_PATH_IS_POPUP_ENABLED, $storeId));
+        return Mage::getStoreConfigFlag(self::XML_PATH_IS_POPUP_ENABLED, $storeId);
     }
 
     public function replaceCategories($storeId = NULL)
@@ -1297,7 +1327,7 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
 
     public function isInstantEnabled($storeId = NULL)
     {
-        return ($this->isEnabled($storeId) && Mage::getStoreConfigFlag(self::XML_PATH_IS_INSTANT_ENABLED, $storeId));
+        return Mage::getStoreConfigFlag(self::XML_PATH_IS_INSTANT_ENABLED, $storeId);
     }
 
     public function getInstantSelector($storeId = NULL)
@@ -1357,10 +1387,4 @@ class Algolia_Algoliasearch_Helper_Data extends Mage_Core_Helper_Abstract
     {
         return Mage::getStoreConfig(self::XML_PATH_RESULTS_LIMIT, $storeId);
     }
-
-    public function useResultCache($storeId = NULL)
-    {
-        return (bool) Mage::getStoreConfigFlag(self::XML_PATH_USE_RESULT_CACHE, $storeId);
-    }
-
 }
